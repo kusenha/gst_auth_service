@@ -1,0 +1,56 @@
+services:
+  postgres-auth:
+    image: postgres:16-alpine
+    container_name: gst-postgres-auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AUTH_DB_NAME:-gst_auth_service}
+      POSTGRES_USER: ${AUTH_DB_USER:-gst}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-S3cur3001}
+    ports:
+      - "5437:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-gst} -d ${AUTH_DB_NAME:-gst_auth_service}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  auth-service:
+    build:
+      context: ./auth_service
+    container_name: gst-auth-service
+    restart: unless-stopped
+    env_file:
+      - ./auth_service/.env.example
+    environment:
+      JWT_SHARED_SECRET: ${JWT_SHARED_SECRET:-eda-shared-jwt-secret}
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ${AUTH_DB_NAME:-gst_auth_service}
+      DB_USER: ${AUTH_DB_USER:-gst}
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:-S3cur3001}
+      DB_HOST: ${AUTH_DB_HOST:-postgres-auth}
+      DB_PORT: ${AUTH_DB_PORT:-5432}
+      AUTH_INTERNAL_TOKEN: ${AUTH_INTERNAL_TOKEN:-internal-auth-token}
+      CORS_ALLOW_ALL_ORIGINS: ${AUTH_CORS_ALLOW_ALL_ORIGINS:-true}
+      CORS_ALLOW_CREDENTIALS: ${AUTH_CORS_ALLOW_CREDENTIALS:-true}
+      CORS_ALLOWED_ORIGINS: ${AUTH_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+      EDA_SOURCE_DB_ENGINE: ${EDA_SOURCE_DB_ENGINE:-django.db.backends.postgresql}
+      EDA_SOURCE_DB_NAME: ${EDA_SOURCE_DB_NAME:-gst_eda_service}
+      EDA_SOURCE_DB_USER: ${EDA_SOURCE_DB_USER:-gst}
+      EDA_SOURCE_DB_PASSWORD: ${EDA_SOURCE_DB_PASSWORD:-S3cur3001}
+      EDA_SOURCE_DB_HOST: ${EDA_SOURCE_DB_HOST:-postgres-eda}
+      EDA_SOURCE_DB_PORT: ${EDA_SOURCE_DB_PORT:-5432}
+      NOTIFICATION_SERVICE_URL: ${NOTIFICATION_SERVICE_URL:-http://host.docker.internal:8894/api/notifications/events/}
+      NOTIFICATION_INTERNAL_TOKEN: ${NOTIFICATION_INTERNAL_TOKEN:-internal-notification-token}
+      NOTIFICATION_SERVICE_TIMEOUT_SECONDS: ${NOTIFICATION_SERVICE_TIMEOUT_SECONDS:-10}
+      NOTIFICATION_SERVICE_QUEUE_MODE: ${NOTIFICATION_SERVICE_QUEUE_MODE:-true}
+    command: sh -c "python manage.py migrate && python manage.py seed_auth_data && python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8883:8000"
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+
+volumes:
+  postgres_auth_data:

@@ -19,7 +19,7 @@ class RefreshTokenAudit(models.Model):
 
 class UserProfile(models.Model):
     GENDER_CHOICES = (("Male", "Male"), ("Female", "Female"))
-    STATUS_CHOICES = (("Active", "Active"), ("On Leave", "On Leave"), ("Retired", "Retired"))
+    STATUS_CHOICES = (("Active", "Active"), ("On Leave", "On Leave"), ("Retired", "Retired"), ("Archived", "Archived"))
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     sourceUserId = models.CharField(max_length=50, unique=True, db_index=True)

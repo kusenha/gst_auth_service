@@ -70,26 +70,24 @@ ASGI_APPLICATION = "auth_service.asgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.mysql"),
-        "NAME": os.getenv("DB_NAME", "auth_service"),
-        "USER": os.getenv("DB_USER", "root"),
+        "ENGINE": os.getenv("DB_ENGINE", "django.db.backends.postgresql"),
+        "NAME": os.getenv("DB_NAME", "gst_auth_service"),
+        "USER": os.getenv("DB_USER", "gst"),
         "PASSWORD": os.getenv("DB_PASSWORD", "S3cur3001"),
         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("DB_PORT", "3306"),
-        "OPTIONS": {"charset": "utf8mb4"},
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 
 EDA_SOURCE_DB_NAME = os.getenv("EDA_SOURCE_DB_NAME", "")
 if EDA_SOURCE_DB_NAME:
     DATABASES["eda_source"] = {
-        "ENGINE": os.getenv("EDA_SOURCE_DB_ENGINE", "django.db.backends.mysql"),
+        "ENGINE": os.getenv("EDA_SOURCE_DB_ENGINE", "django.db.backends.postgresql"),
         "NAME": EDA_SOURCE_DB_NAME,
-        "USER": os.getenv("EDA_SOURCE_DB_USER", "root"),
-        "PASSWORD": os.getenv("EDA_SOURCE_DB_PASSWORD", ""),
+        "USER": os.getenv("EDA_SOURCE_DB_USER", "gst"),
+        "PASSWORD": os.getenv("EDA_SOURCE_DB_PASSWORD", "S3cur3001"),
         "HOST": os.getenv("EDA_SOURCE_DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("EDA_SOURCE_DB_PORT", "3306"),
-        "OPTIONS": {"charset": "utf8mb4"},
+        "PORT": os.getenv("EDA_SOURCE_DB_PORT", "5432"),
     }
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -178,3 +176,9 @@ CORS_ALLOW_HEADERS = [
     "x-csrftoken",
     "x-requested-with",
 ]
+
+AUTH_INTERNAL_TOKEN = os.getenv("AUTH_INTERNAL_TOKEN", "")
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notification-service:8000/api/notifications/events/")
+NOTIFICATION_SERVICE_TIMEOUT_SECONDS = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "10"))
+NOTIFICATION_SERVICE_QUEUE_MODE = env_bool("NOTIFICATION_SERVICE_QUEUE_MODE", True)
+NOTIFICATION_INTERNAL_TOKEN = os.getenv("NOTIFICATION_INTERNAL_TOKEN", AUTH_INTERNAL_TOKEN)

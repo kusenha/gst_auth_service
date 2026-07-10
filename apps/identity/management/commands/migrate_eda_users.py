@@ -118,15 +118,15 @@ class Command(BaseCommand):
             if not created_user:
                 stats.updated_users += 1
 
-        profile_defaults = {
-            "sourceUserId": source_id,
-            "checkNumber": check_number,
-        }
-        profile = getattr(user, "profile", None)
-        created_profile = False
-        if not profile:
-            profile = UserProfile(user=user, **profile_defaults)
-            created_profile = True
+        profile, created_profile = self._resolve_profile(user, source_id, check_number)
+        if profile is None:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Skipping profile import "
+                    f"for sourceUserId={source_id}, checkNumber={check_number} because it already belongs to another user."
+                )
+            )
+            return
 
         profile.sourceUserId = source_id
         profile.checkNumber = check_number
@@ -166,6 +166,23 @@ class Command(BaseCommand):
             stats.created_profiles += 1
         else:
             stats.updated_profiles += 1
+
+    @staticmethod
+    def _resolve_profile(user, source_id: str, check_number: str) -> tuple[UserProfile | None, bool]:
+        profile = getattr(user, "profile", None)
+        if profile:
+            return profile, False
+
+        existing_profile = (
+            UserProfile.objects.select_related("user").filter(sourceUserId=source_id).first()
+            or UserProfile.objects.select_related("user").filter(checkNumber=check_number).first()
+        )
+        if existing_profile:
+            if existing_profile.user_id != user.id:
+                return None, False
+            return existing_profile, False
+
+        return UserProfile(user=user), True
 
     @staticmethod
     def _get(row: dict[str, Any], key: str) -> Any:
