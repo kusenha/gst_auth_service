@@ -25,6 +25,7 @@ def send_temporary_password_email(user: User, temporary_password: str, *, reason
     )
     payload = {
         "type": f"account.{reason}",
+        "service": "auth-service",
         "user_id": _source_user_id(user),
         "email": user.email,
         "subject": subject,
