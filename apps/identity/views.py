@@ -2,7 +2,7 @@ import secrets
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group
 from django.db.models import Q
 from rest_framework import permissions, status
 from rest_framework.decorators import api_view, permission_classes
@@ -306,52 +306,6 @@ class ResendAccountEmailView(APIView):
         return Response({"ok": True, "user": UserSerializer(user).data})
 
 
-class RolesView(APIView):
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get(self, request):
-        if not _can_manage_users(request):
-            return Response({"detail": "You do not have permission to list roles."}, status=status.HTTP_403_FORBIDDEN)
-
-        roles = [
-            {
-                "value": role.name,
-                "label": role.name.replace("_", " ").title(),
-                "permissionKeys": sorted(
-                    f"{app_label}.{codename}"
-                    for app_label, codename in role.permissions.select_related("content_type").values_list(
-                        "content_type__app_label", "codename"
-                    )
-                ),
-                "userCount": role.user_set.count(),
-            }
-            for role in Group.objects.all().order_by("name")
-        ]
-        return Response(roles)
-
-
-class PermissionsCatalogView(APIView):
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-
-    def get(self, request):
-        if not _can_manage_users(request):
-            return Response({"detail": "You do not have permission to list permissions."}, status=status.HTTP_403_FORBIDDEN)
-
-        permissions_qs = Permission.objects.select_related("content_type").order_by(
-            "content_type__app_label", "codename"
-        )
-        data = [
-            {
-                "key": f"{item.content_type.app_label}.{item.codename}",
-                "codename": item.codename,
-                "name": item.name,
-                "appLabel": item.content_type.app_label,
-            }
-            for item in permissions_qs
-        ]
-        return Response(data)
-
-
 class UserRoleView(APIView):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
@@ -394,6 +348,13 @@ class UserPermissionsView(APIView):
 
         serializer = AssignPermissionsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        permission_ids = serializer.validated_data["permissions"]
-        user.user_permissions.set(Permission.objects.filter(id__in=permission_ids))
+        permission_ids = set(serializer.validated_data["permissions"])
+
+        from apps.rbac.models import UserPermission
+
+        UserPermission.objects.filter(user=user).exclude(permission_id__in=permission_ids).delete()
+        existing_ids = set(UserPermission.objects.filter(user=user).values_list("permission_id", flat=True))
+        UserPermission.objects.bulk_create(
+            [UserPermission(user=user, permission_id=pid) for pid in permission_ids - existing_ids]
+        )
         return Response(UserSerializer(user).data)

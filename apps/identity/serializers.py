@@ -3,7 +3,7 @@ import re
 
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.models import Group
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -208,10 +208,9 @@ class UserSerializer(serializers.ModelSerializer):
         return profile.accountEmailError if profile else ""
 
     def get_permissionKeys(self, obj):
-        perms = set(obj.user_permissions.values_list("content_type__app_label", "codename"))
-        for group in obj.groups.all():
-            perms.update(group.permissions.values_list("content_type__app_label", "codename"))
-        return sorted(f"{app}.{code}" for app, code in perms)
+        from apps.rbac.services import resolve_permission_keys
+
+        return resolve_permission_keys(obj)
 
 
 class MeUpdateSerializer(serializers.Serializer):
@@ -343,13 +342,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 class AuthTokenSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
+        from apps.rbac.services import resolve_permission_keys
+
         token = super().get_token(user)
         roles = list(user.groups.values_list("name", flat=True))
-        perms = set(user.user_permissions.values_list("content_type__app_label", "codename"))
-        for group in user.groups.all():
-            perms.update(group.permissions.values_list("content_type__app_label", "codename"))
         token["roles"] = roles
-        token["permissions"] = sorted(f"{app}.{code}" for app, code in perms)
+        token["permissions"] = resolve_permission_keys(user)
         token["username"] = user.username
         profile = getattr(user, "profile", None)
         token["check_number"] = profile.checkNumber if profile else user.username
@@ -702,31 +700,14 @@ class AssignPermissionsSerializer(serializers.Serializer):
     permissions = serializers.ListField(child=serializers.CharField(), required=True)
 
     def validate_permissions(self, value):
-        cleaned = [str(item).strip() for item in value if str(item).strip()]
-        permission_ids: list[int] = []
-        invalid: list[str] = []
+        from apps.rbac.models import Permission as RbacPermission
 
-        for item in cleaned:
-            permission = None
-            if item.isdigit():
-                permission = Permission.objects.filter(id=int(item)).first()
-            else:
-                app_label, separator, codename = item.partition(".")
-                if separator and app_label and codename:
-                    permission = Permission.objects.filter(
-                        content_type__app_label=app_label,
-                        codename=codename,
-                    ).first()
-
-            if permission is None:
-                invalid.append(item)
-                continue
-
-            permission_ids.append(permission.id)
+        cleaned = {str(item).strip() for item in value if str(item).strip()}
+        matched = list(RbacPermission.objects.filter(key__in=cleaned).values_list("id", "key"))
+        matched_keys = {key for _, key in matched}
+        invalid = sorted(cleaned - matched_keys)
 
         if invalid:
-            raise serializers.ValidationError(
-                f"Unknown permissions: {', '.join(sorted(set(invalid)))}"
-            )
+            raise serializers.ValidationError(f"Unknown permissions: {', '.join(invalid)}")
 
-        return sorted(set(permission_ids))
+        return sorted({pid for pid, _ in matched})

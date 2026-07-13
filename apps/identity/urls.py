@@ -2,12 +2,10 @@ from django.urls import path
 
 from apps.identity.views import (
     LoginView,
-    PermissionsCatalogView,
     RefreshView,
     RegisterView,
     ResetUserPasswordView,
     ResendAccountEmailView,
-    RolesView,
     UserDetailView,
     UserListCreateView,
     UserPermissionsView,
@@ -32,6 +30,4 @@ urlpatterns = [
     path("users/<str:user_ref>/set-status/", UserStatusView.as_view(), name="user-set-status"),
     path("users/<str:user_ref>/assign-role/", UserRoleView.as_view(), name="user-assign-role"),
     path("users/<str:user_ref>/assign-permissions/", UserPermissionsView.as_view(), name="user-assign-permissions"),
-    path("roles/", RolesView.as_view(), name="roles"),
-    path("permissions/", PermissionsCatalogView.as_view(), name="permissions"),
 ]
