@@ -183,3 +183,10 @@ NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://notific
 NOTIFICATION_SERVICE_TIMEOUT_SECONDS = int(os.getenv("NOTIFICATION_SERVICE_TIMEOUT_SECONDS", "10"))
 NOTIFICATION_SERVICE_QUEUE_MODE = env_bool("NOTIFICATION_SERVICE_QUEUE_MODE", True)
 NOTIFICATION_INTERNAL_TOKEN = os.getenv("NOTIFICATION_INTERNAL_TOKEN", AUTH_INTERNAL_TOKEN)
+
+# Fallback path used when the Notification Service cannot be reached
+# directly (see apps.identity.services.account_notifications): the Core
+# Gateway holds the event and delivers it once the Notification Service is
+# healthy again.
+DISCOVERY_SERVICE_URL = os.getenv("DISCOVERY_SERVICE_URL", "http://core-engine:8010/api/core")
+DISCOVERY_SHARED_TOKEN = os.getenv("DISCOVERY_SHARED_TOKEN", "")

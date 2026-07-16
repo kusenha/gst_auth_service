@@ -230,25 +230,28 @@ class ResetUserPasswordView(APIView):
         serializer = AdminResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         new_password = serializer.validated_data.get("newPassword") or secrets.token_urlsafe(10)
-        sent, error_message, _ = deliver_temporary_password(
+        ok, message, _ = deliver_temporary_password(
             user,
             reason="password_reset",
             password=new_password,
             missing_email_message="User email is required before sending a temporary password.",
             archived_message="Archived employees must be reactivated before resetting access.",
         )
-        if not sent:
+        if not ok:
             status_code = (
                 status.HTTP_400_BAD_REQUEST
-                if error_message in {
+                if message in {
                     "User email is required before sending a temporary password.",
                     "Archived employees must be reactivated before resetting access.",
                 }
                 else status.HTTP_502_BAD_GATEWAY
             )
-            return Response({"detail": error_message or "Failed to send the temporary password email."}, status=status_code)
+            return Response({"detail": message or "Failed to send the temporary password email."}, status=status_code)
 
-        return Response({"ok": True, "user": UserSerializer(user).data})
+        response = {"ok": True, "user": UserSerializer(user).data}
+        if message:
+            response["message"] = message
+        return Response(response)
 
 
 class UserStatusView(APIView):
@@ -286,24 +289,27 @@ class ResendAccountEmailView(APIView):
         if not user:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        sent, error_message, _ = deliver_temporary_password(
+        ok, message, _ = deliver_temporary_password(
             user,
             reason="created",
             missing_email_message="User email is required before sending account access.",
             archived_message="Archived employees must be reactivated before sending account access.",
         )
-        if not sent:
+        if not ok:
             status_code = (
                 status.HTTP_400_BAD_REQUEST
-                if error_message in {
+                if message in {
                     "User email is required before sending account access.",
                     "Archived employees must be reactivated before sending account access.",
                 }
                 else status.HTTP_502_BAD_GATEWAY
             )
-            return Response({"detail": error_message or "Failed to send the account email."}, status=status_code)
+            return Response({"detail": message or "Failed to send the account email."}, status=status_code)
 
-        return Response({"ok": True, "user": UserSerializer(user).data})
+        response = {"ok": True, "user": UserSerializer(user).data}
+        if message:
+            response["message"] = message
+        return Response(response)
 
 
 class UserRoleView(APIView):

@@ -30,12 +30,12 @@ def validate_access_delivery_target(
     return profile, ""
 
 
-def mark_account_email(profile, *, sent: bool, error_message: str = ""):
+def mark_account_email(profile, *, delivery_status: str, error_message: str = ""):
     if not profile:
         return
-    profile.accountEmailStatus = "sent" if sent else "failed"
-    profile.accountEmailSentAt = timezone.now() if sent else None
-    profile.accountEmailError = "" if sent else error_message
+    profile.accountEmailStatus = delivery_status
+    profile.accountEmailSentAt = timezone.now() if delivery_status == "sent" else None
+    profile.accountEmailError = "" if delivery_status != "failed" else error_message
     profile.save(update_fields=["accountEmailStatus", "accountEmailSentAt", "accountEmailError"])
 
 
@@ -65,10 +65,13 @@ def deliver_temporary_password(
             profile.mustChangePassword = True
             profile.save(update_fields=["mustChangePassword"])
 
-        sent, error_message = send_temporary_password_email(user, temporary_password, reason=reason)
-        mark_account_email(profile, sent=sent, error_message=error_message)
-        if not sent:
+        delivery_status, message = send_temporary_password_email(user, temporary_password, reason=reason)
+        mark_account_email(profile, delivery_status=delivery_status, error_message=message)
+        if delivery_status == "failed":
             transaction.set_rollback(True)
-            return False, error_message or "Failed to deliver the temporary password email.", temporary_password
+            return False, message or "Failed to deliver the temporary password email.", temporary_password
 
-    return True, "", temporary_password
+    # "sent" and "queued" both mean the password change stands: a queued
+    # message is guaranteed eventual delivery by the Core Gateway once the
+    # notification service is back online, so there is no need to roll back.
+    return True, message, temporary_password
