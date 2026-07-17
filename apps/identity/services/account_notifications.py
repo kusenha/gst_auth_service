@@ -23,22 +23,31 @@ def send_temporary_password_email(user: User, temporary_password: str, *, reason
     if not base_url:
         return "failed", "Notification service URL is not configured."
 
-    message = _build_message(user, temporary_password, reason=reason)
-    subject = (
-        "Your GST EDA account has been created"
-        if reason == "created"
-        else "Your GST EDA password has been reset"
-    )
     payload = {
         "type": f"account.{reason}",
         "service": "auth-service",
         "user_id": _source_user_id(user),
         "email": user.email,
-        "subject": subject,
-        "title": subject,
-        "body": message,
         "channels": ["email"],
     }
+
+    if reason == "password_reset":
+        # Leave subject/body unset so notification_service renders them from
+        # the "account.password_reset" template configured in Configuration
+        # (Email Templates) instead of a hardcoded message here — this is
+        # what actually makes that template take effect: notification_service
+        # only falls back to its own rendering when subject/body arrive empty.
+        payload["context"] = {
+            "firstName": user.first_name or user.username or "User",
+            "checkNumber": user.username,
+            "temporaryPassword": temporary_password,
+        }
+    else:
+        message = _build_message(user, temporary_password, reason=reason)
+        subject = "Your GST EDA account has been created"
+        payload["subject"] = subject
+        payload["title"] = subject
+        payload["body"] = message
 
     # Account creation and password reset emails are critical user flows.
     # Process them synchronously through notification_service so the caller
