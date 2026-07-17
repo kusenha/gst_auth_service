@@ -48,5 +48,10 @@ class UserProfile(models.Model):
     accountEmailStatus = models.CharField(max_length=30, default="not_sent")
     accountEmailSentAt = models.DateTimeField(null=True, blank=True)
     accountEmailError = models.TextField(blank=True)
+    # Any access/refresh token issued before this timestamp is rejected on
+    # its next use, regardless of its own expiry — set on logout so that a
+    # token already held by another GST EDA app/tab becomes invalid
+    # immediately instead of only converging eventually via polling.
+    tokensInvalidBefore = models.DateTimeField(null=True, blank=True)
     createdAt = models.DateTimeField(auto_now_add=True)
     updatedAt = models.DateTimeField(auto_now=True)

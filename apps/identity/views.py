@@ -4,10 +4,13 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.identity.serializers import (
@@ -71,12 +74,110 @@ def _ensure_profile(user):
     return ensure_user_profile(user, source_user_id=str(user.id), check_number=user.username)
 
 
+def _set_sso_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        settings.SSO_COOKIE_NAME,
+        refresh_token,
+        max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
+        httponly=True,
+        secure=settings.SSO_COOKIE_SECURE,
+        samesite="Lax",
+        domain=settings.SSO_COOKIE_DOMAIN,
+        path="/api/auth/",
+    )
+
+
+def _clear_sso_cookie(response: Response) -> None:
+    response.delete_cookie(settings.SSO_COOKIE_NAME, path="/api/auth/", domain=settings.SSO_COOKIE_DOMAIN)
+
+
 class LoginView(TokenObtainPairView):
     serializer_class = AuthTokenSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        refresh = response.data.get("refresh") if isinstance(response.data, dict) else None
+        if refresh:
+            _set_sso_cookie(response, refresh)
+        return response
 
 
 class RefreshView(TokenRefreshView):
     pass
+
+
+class SsoSessionView(APIView):
+    """Silent single-sign-on check: if the browser is carrying a valid SSO
+    session cookie (set by a login in any GST EDA app), returns a fresh
+    access/refresh pair for THIS app without requiring the user to fill in
+    the login form again."""
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        raw = request.COOKIES.get(settings.SSO_COOKIE_NAME)
+        if not raw:
+            return Response({"detail": "No active session."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            existing = RefreshToken(raw)
+        except TokenError:
+            response = Response({"detail": "Session expired."}, status=status.HTTP_401_UNAUTHORIZED)
+            _clear_sso_cookie(response)
+            return response
+
+        user = User.objects.filter(pk=existing["user_id"]).select_related("profile").first()
+        if not user or not user.is_active:
+            response = Response({"detail": "Session is no longer valid."}, status=status.HTTP_401_UNAUTHORIZED)
+            _clear_sso_cookie(response)
+            return response
+        profile = getattr(user, "profile", None)
+        if profile and profile.status == "Archived":
+            response = Response({"detail": "Session is no longer valid."}, status=status.HTTP_401_UNAUTHORIZED)
+            _clear_sso_cookie(response)
+            return response
+        if profile and profile.tokensInvalidBefore and existing["iat"] < int(profile.tokensInvalidBefore.timestamp()):
+            # Cookie predates the last logout (e.g. a copy that outlived the
+            # one already cleared in the browser that logged out).
+            response = Response({"detail": "Session is no longer valid."}, status=status.HTTP_401_UNAUTHORIZED)
+            _clear_sso_cookie(response)
+            return response
+
+        refresh = AuthTokenSerializer.get_token(user)
+        response = Response(
+            {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": UserSerializer(user).data,
+            }
+        )
+        _set_sso_cookie(response, str(refresh))
+        return response
+
+
+class LogoutView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # The SSO cookie (not the Authorization header, which may already be
+        # stale or absent) is the reliable identity carrier for "whose
+        # session is this" — mirrors how SsoSessionView resolves the user.
+        raw = request.COOKIES.get(settings.SSO_COOKIE_NAME)
+        if raw:
+            try:
+                existing = RefreshToken(raw)
+                user = User.objects.filter(pk=existing["user_id"]).select_related("profile").first()
+            except TokenError:
+                user = None
+            if user:
+                profile = _ensure_profile(user)
+                if profile:
+                    profile.tokensInvalidBefore = timezone.now()
+                    profile.save(update_fields=["tokensInvalidBefore"])
+
+        response = Response({"ok": True})
+        _clear_sso_cookie(response)
+        return response
 
 
 class RegisterView(APIView):
@@ -362,5 +463,45 @@ class UserPermissionsView(APIView):
         existing_ids = set(UserPermission.objects.filter(user=user).values_list("permission_id", flat=True))
         UserPermission.objects.bulk_create(
             [UserPermission(user=user, permission_id=pid) for pid in permission_ids - existing_ids]
+        )
+        return Response(UserSerializer(user).data)
+
+
+class UserServiceAccessView(APIView):
+    """Grants or revokes which apps/services a user may open, independent of
+    their role or permissions (e.g. an administrator who should not have
+    Configuration app access)."""
+
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def post(self, request, user_ref: str):
+        if not _can_manage_users(request):
+            return Response(
+                {"detail": "You do not have permission to assign app access."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        user = _resolve_user(user_ref)
+        if not user:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        from apps.rbac.serializers import AssignServicesSerializer
+
+        serializer = AssignServicesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service_names = {name.strip().lower() for name in serializer.validated_data["services"] if name.strip()}
+
+        from apps.rbac.models import Service, UserServiceAccess
+
+        service_ids = set(Service.objects.filter(name__in=service_names).values_list("id", flat=True))
+        actor = getattr(request.user, "username", "") or str(getattr(request.user, "id", ""))
+
+        UserServiceAccess.objects.filter(user=user).exclude(service_id__in=service_ids).delete()
+        existing_ids = set(UserServiceAccess.objects.filter(user=user).values_list("service_id", flat=True))
+        UserServiceAccess.objects.bulk_create(
+            [
+                UserServiceAccess(user=user, service_id=sid, grantedBy=actor)
+                for sid in service_ids - existing_ids
+            ]
         )
         return Response(UserSerializer(user).data)

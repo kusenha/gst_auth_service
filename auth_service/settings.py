@@ -107,7 +107,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.identity.authentication.CutoffAwareJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -150,6 +150,15 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=JWT_REFRESH_DAYS),
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
+
+# Single-sign-on session cookie: set on login, scoped to this host (which
+# every frontend app reaches through the same API gateway), so a second app
+# can silently obtain a session via /api/auth/sso/session/ without the user
+# seeing a login form again. HttpOnly so no frontend JS can read the refresh
+# token directly out of it.
+SSO_COOKIE_NAME = os.getenv("SSO_COOKIE_NAME", "gst_sso")
+SSO_COOKIE_SECURE = env_bool("SSO_COOKIE_SECURE", False)
+SSO_COOKIE_DOMAIN = os.getenv("SSO_COOKIE_DOMAIN", "") or None
 
 CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL_ORIGINS", True)
 
