@@ -5,8 +5,9 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.rbac.models import Permission, Role, RolePermission, Service
+from apps.rbac.models import Permission, Role, RolePermission, Service, UserServiceAccess
 from apps.rbac.serializers import (
+    LauncherAppSerializer,
     PermissionSerializer,
     PermissionWriteSerializer,
     RoleSerializer,
@@ -45,11 +46,17 @@ def _slugify_key(name: str) -> str:
     return slug or "role"
 
 
+def _resolve_service(name: str) -> Service | None:
+    """Resolve a service name (e.g. from a write payload) to a Service row,
+    registering it if it doesn't exist yet. Blank means "global" (no service)."""
+    normalized = (name or "").strip().lower()
+    if not normalized:
+        return None
+    return Service.touch(normalized)
+
+
 def _sync_role_permissions(role: Role, permission_keys: list[str]) -> None:
-    matched = Permission.objects.filter(key__in=permission_keys)
-    if role.service:
-        matched = matched.filter(service=role.service)
-    matched_ids = set(matched.values_list("id", flat=True))
+    matched_ids = set(Permission.objects.filter(key__in=permission_keys).values_list("id", flat=True))
 
     RolePermission.objects.filter(role=role).exclude(permission_id__in=matched_ids).delete()
     existing_ids = set(RolePermission.objects.filter(role=role).values_list("permission_id", flat=True))
@@ -76,7 +83,7 @@ class RoleListCreateView(APIView):
         queryset = Role.objects.all()
         service = request.query_params.get("service")
         if service is not None:
-            queryset = queryset.filter(service=service)
+            queryset = queryset.filter(service__name=service) if service else queryset.filter(service__isnull=True)
         return Response(RoleSerializer(queryset, many=True).data)
 
     def post(self, request):
@@ -89,7 +96,7 @@ class RoleListCreateView(APIView):
         if not name:
             return Response({"detail": "name is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        service = data.get("service", "")
+        service = _resolve_service(data.get("service", ""))
         key = _slugify_key(name)
         if Role.objects.filter(service=service, key=key).exists():
             return Response(
@@ -145,9 +152,6 @@ class PermissionListCreateView(APIView):
         if not _can_manage_rbac(request):
             return Response({"detail": "You do not have permission to list permissions."}, status=status.HTTP_403_FORBIDDEN)
         queryset = Permission.objects.all()
-        service = request.query_params.get("service")
-        if service is not None:
-            queryset = queryset.filter(service=service)
         return Response(PermissionSerializer(queryset, many=True).data)
 
     def post(self, request):
@@ -157,13 +161,12 @@ class PermissionListCreateView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         permission, created = Permission.objects.get_or_create(
-            service=data["service"].strip().lower(),
             key=data["key"].strip(),
             defaults={"name": data.get("name") or data["key"], "description": data.get("description", "")},
         )
         if not created:
             return Response(
-                {"detail": "A permission with this key already exists for this service."},
+                {"detail": "A permission with this key already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(PermissionSerializer(permission).data, status=status.HTTP_201_CREATED)
@@ -222,7 +225,6 @@ class InternalRbacRegisterView(APIView):
             if not key:
                 continue
             _, created = Permission.objects.update_or_create(
-                service=service.name,
                 key=key,
                 defaults={"name": item.get("name") or key, "description": item.get("description", "")},
             )
@@ -236,7 +238,11 @@ class InternalRbacRegisterView(APIView):
             key = str(item.get("key", "")).strip()
             if not key:
                 continue
-            role_service = str(item.get("service", service.name)).strip().lower()
+            # Roles default to the registering service unless the payload
+            # explicitly marks them global with an empty "service" value.
+            role_service = (
+                _resolve_service(item["service"]) if "service" in item else service
+            )
             if Role.objects.filter(service=role_service, key=key).exists():
                 continue
             role = Role.objects.create(
@@ -256,3 +262,19 @@ class InternalRbacRegisterView(APIView):
                 "rolesCreated": roles_created,
             }
         )
+
+
+class LauncherAppsView(APIView):
+    """Every launcher-visible app, flagged with whether the current user has
+    been granted access to it. Any authenticated user may call this — it is
+    how the app-switcher UI in every frontend is populated."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        granted_names = set(
+            UserServiceAccess.objects.filter(user=request.user).values_list("service__name", flat=True)
+        )
+        apps = Service.objects.filter(showInLauncher=True, isActive=True).order_by("sortOrder", "name")
+        serializer = LauncherAppSerializer(apps, many=True, context={"granted_names": granted_names})
+        return Response(serializer.data)

@@ -66,12 +66,14 @@ class Command(BaseCommand):
     help = "Seed the eda-service permission catalog and its six roles into the RBAC registry."
 
     def handle(self, *args, **options):
-        service = Service.touch("eda-service", display_name="EDA Service")
+        # Registers "eda-service" in the service catalog. Permissions are a
+        # global vocabulary (no service field of their own); this service is
+        # simply the first, and currently only, consumer of them.
+        Service.touch("eda-service", display_name="EDA Service")
 
         permission_by_key = {}
         for key, name, description in PERMISSIONS:
             permission, _ = Permission.objects.update_or_create(
-                service=service.name,
                 key=key,
                 defaults={"name": name, "description": description},
             )
@@ -79,7 +81,7 @@ class Command(BaseCommand):
 
         for role_key, permission_keys in ROLES.items():
             role, _ = Role.objects.get_or_create(
-                service="",
+                service=None,
                 key=role_key,
                 defaults={"name": role_key.replace("_", " ").title(), "isSystem": True},
             )

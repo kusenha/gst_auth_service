@@ -44,6 +44,7 @@ class UserSerializer(serializers.ModelSerializer):
     accountEmailSentAt = serializers.SerializerMethodField()
     accountEmailError = serializers.SerializerMethodField()
     permissionKeys = serializers.SerializerMethodField()
+    services = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -78,6 +79,7 @@ class UserSerializer(serializers.ModelSerializer):
             "accountEmailSentAt",
             "accountEmailError",
             "permissionKeys",
+            "services",
         ]
 
     @staticmethod
@@ -212,6 +214,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         return resolve_permission_keys(obj)
 
+    def get_services(self, obj):
+        from apps.rbac.services import resolve_service_keys
+
+        return resolve_service_keys(obj)
+
 
 class MeUpdateSerializer(serializers.Serializer):
     firstName = serializers.CharField(required=False)
@@ -342,12 +349,13 @@ class RegisterSerializer(serializers.ModelSerializer):
 class AuthTokenSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
-        from apps.rbac.services import resolve_permission_keys
+        from apps.rbac.services import resolve_permission_keys, resolve_service_keys
 
         token = super().get_token(user)
         roles = list(user.groups.values_list("name", flat=True))
         token["roles"] = roles
         token["permissions"] = resolve_permission_keys(user)
+        token["services"] = resolve_service_keys(user)
         token["username"] = user.username
         profile = getattr(user, "profile", None)
         token["check_number"] = profile.checkNumber if profile else user.username

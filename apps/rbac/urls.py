@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.rbac.views import (
     InternalRbacRegisterView,
+    LauncherAppsView,
     PermissionDetailView,
     PermissionListCreateView,
     RoleDetailView,
@@ -11,6 +12,7 @@ from apps.rbac.views import (
 
 urlpatterns = [
     path("services/", ServiceListView.as_view(), name="rbac-services"),
+    path("apps/", LauncherAppsView.as_view(), name="rbac-apps"),
     path("roles/", RoleListCreateView.as_view(), name="rbac-roles"),
     path("roles/<int:pk>/", RoleDetailView.as_view(), name="rbac-role-detail"),
     path("permissions/", PermissionListCreateView.as_view(), name="rbac-permissions"),
