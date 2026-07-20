@@ -258,6 +258,19 @@ class UserListCreateView(APIView):
         if designation_name:
             queryset = queryset.filter(profile__designationName__iexact=designation_name)
 
+        search = request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(
+                Q(first_name__icontains=search)
+                | Q(last_name__icontains=search)
+                | Q(profile__middleName__icontains=search)
+                | Q(profile__checkNumber__icontains=search)
+                | Q(profile__personnelNumber__icontains=search)
+                | Q(email__icontains=search)
+                | Q(profile__designationName__icontains=search)
+            )
+            queryset = queryset[:20]
+
         return Response(UserSerializer(queryset, many=True).data)
 
     def post(self, request):
