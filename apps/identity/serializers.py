@@ -45,6 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
     accountEmailError = serializers.SerializerMethodField()
     permissionKeys = serializers.SerializerMethodField()
     services = serializers.SerializerMethodField()
+    tokensInvalidBefore = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -80,6 +81,7 @@ class UserSerializer(serializers.ModelSerializer):
             "accountEmailError",
             "permissionKeys",
             "services",
+            "tokensInvalidBefore",
         ]
 
     @staticmethod
@@ -204,6 +206,14 @@ class UserSerializer(serializers.ModelSerializer):
     def get_accountEmailSentAt(self, obj):
         profile = self._profile(obj)
         return profile.accountEmailSentAt.isoformat() if profile and profile.accountEmailSentAt else None
+
+    def get_tokensInvalidBefore(self, obj):
+        # Lets other services (eda_backend, configuration_service) that
+        # decode this app's JWTs locally reject a token whose `iat` predates
+        # the user's last logout, instead of only relying on natural JWT
+        # expiry — see apps.identity.authentication.CutoffAwareJWTAuthentication.
+        profile = self._profile(obj)
+        return profile.tokensInvalidBefore.isoformat() if profile and profile.tokensInvalidBefore else None
 
     def get_accountEmailError(self, obj):
         profile = self._profile(obj)
