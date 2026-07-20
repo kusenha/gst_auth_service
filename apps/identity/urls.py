@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.identity.views import (
+    EmployeeImportDetailView,
+    EmployeeImportView,
     LoginView,
     LogoutView,
     RefreshView,
@@ -29,6 +31,8 @@ urlpatterns = [
     path("change-password/", change_password, name="change-password"),
     path("change-temporary-password/", change_temporary_password, name="change-temporary-password"),
     path("users/", UserListCreateView.as_view(), name="users"),
+    path("employee-imports/", EmployeeImportView.as_view(), name="employee-imports"),
+    path("employee-imports/<str:batch_id>/", EmployeeImportDetailView.as_view(), name="employee-import-detail"),
     path("users/<str:user_ref>/", UserDetailView.as_view(), name="user-detail"),
     path("users/<str:user_ref>/reset-password/", ResetUserPasswordView.as_view(), name="user-reset-password"),
     path("users/<str:user_ref>/resend-account-email/", ResendAccountEmailView.as_view(), name="user-resend-account-email"),

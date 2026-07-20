@@ -13,6 +13,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from apps.identity.models import EmployeeImportBatch, EmployeeImportRow
 from apps.identity.serializers import (
     AdminResetPasswordSerializer,
     AdminUserWriteSerializer,
@@ -20,6 +21,8 @@ from apps.identity.serializers import (
     AssignRoleSerializer,
     AuthTokenSerializer,
     ChangePasswordSerializer,
+    EmployeeImportBatchSerializer,
+    EmployeeImportRowInputSerializer,
     MeUpdateSerializer,
     RegisterSerializer,
     SetUserStatusSerializer,
@@ -30,6 +33,7 @@ from apps.identity.services.access_delivery import (
     deliver_temporary_password,
 )
 from apps.identity.services.profiles import ensure_user_profile
+from apps.identity.tasks import process_employee_import_row_task
 
 User = get_user_model()
 
@@ -289,6 +293,82 @@ class UserListCreateView(APIView):
                 archived_message="Archived employees must be reactivated before sending account access.",
             )
         return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class EmployeeImportView(APIView):
+    """Bulk employee creation from an uploaded sheet. The frontend parses the
+    file and resolves department/designation names client-side (it already
+    has that catalog loaded); this just takes the resolved rows, persists
+    them, and hands each one to a Celery worker so account creation and the
+    account-access email don't block the upload request."""
+
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get(self, request):
+        if not _can_manage_users(request):
+            return Response({"detail": "You do not have permission to manage users."}, status=status.HTTP_403_FORBIDDEN)
+        batches = EmployeeImportBatch.objects.prefetch_related("rows").order_by("-createdAt")[:20]
+        return Response(EmployeeImportBatchSerializer(batches, many=True).data)
+
+    def post(self, request):
+        if not _can_manage_users(request):
+            return Response({"detail": "You do not have permission to manage users."}, status=status.HTTP_403_FORBIDDEN)
+
+        rows = request.data.get("rows")
+        if not isinstance(rows, list) or not rows:
+            return Response({"detail": "rows must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        cleaned_rows = []
+        for index, raw_row in enumerate(rows, start=1):
+            serializer = EmployeeImportRowInputSerializer(data=raw_row)
+            if not serializer.is_valid():
+                return Response(
+                    {"detail": f"Row {index}: {serializer.errors}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            cleaned_rows.append((index, serializer.validated_data))
+
+        actor = getattr(request.user, "profile", None)
+        batch = EmployeeImportBatch.objects.create(
+            fileName=str(request.data.get("fileName") or "")[:255],
+            createdBy=actor.checkNumber if actor else request.user.username,
+            totalRows=len(cleaned_rows),
+        )
+        row_ids = []
+        for row_number, data in cleaned_rows:
+            row = EmployeeImportRow.objects.create(
+                batch=batch,
+                rowNumber=row_number,
+                checkNumber=data["checkNumber"],
+                personnelNumber=data.get("personnelNumber", ""),
+                firstName=data.get("firstName", ""),
+                lastName=data.get("lastName", ""),
+                email=data.get("email", ""),
+                departmentId=data.get("departmentId", ""),
+                designationId=data.get("designationId"),
+                designation=data.get("designation", ""),
+            )
+            row_ids.append(row.id)
+
+        for row_id in row_ids:
+            process_employee_import_row_task.delay(row_id)
+
+        return Response(
+            EmployeeImportBatchSerializer(batch).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class EmployeeImportDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get(self, request, batch_id: str):
+        if not _can_manage_users(request):
+            return Response({"detail": "You do not have permission to manage users."}, status=status.HTTP_403_FORBIDDEN)
+        batch = EmployeeImportBatch.objects.prefetch_related("rows").filter(id=batch_id).first()
+        if not batch:
+            return Response({"detail": "Import batch not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EmployeeImportBatchSerializer(batch).data)
 
 
 class UserDetailView(APIView):

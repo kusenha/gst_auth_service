@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -55,3 +57,45 @@ class UserProfile(models.Model):
     tokensInvalidBefore = models.DateTimeField(null=True, blank=True)
     createdAt = models.DateTimeField(auto_now_add=True)
     updatedAt = models.DateTimeField(auto_now=True)
+
+
+class EmployeeImportBatch(models.Model):
+    """One bulk-upload of employees (see apps.identity.views.EmployeeImportView).
+    Rows are created and emailed asynchronously by apps.identity.tasks — this
+    row tracks overall progress for the uploading admin to poll."""
+
+    STATUS_CHOICES = (("processing", "Processing"), ("completed", "Completed"))
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    fileName = models.CharField(max_length=255, blank=True)
+    createdBy = models.CharField(max_length=120, blank=True)
+    totalRows = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="processing")
+    createdAt = models.DateTimeField(auto_now_add=True)
+    completedAt = models.DateTimeField(null=True, blank=True)
+
+
+class EmployeeImportRow(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("created", "Created"),
+        ("failed", "Failed"),
+    )
+
+    batch = models.ForeignKey(EmployeeImportBatch, related_name="rows", on_delete=models.CASCADE)
+    rowNumber = models.PositiveIntegerField()
+    checkNumber = models.CharField(max_length=50, blank=True)
+    personnelNumber = models.CharField(max_length=50, blank=True)
+    firstName = models.CharField(max_length=150, blank=True)
+    lastName = models.CharField(max_length=150, blank=True)
+    email = models.EmailField(blank=True)
+    departmentId = models.CharField(max_length=50, blank=True)
+    designationId = models.IntegerField(null=True, blank=True)
+    designation = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    errorMessage = models.TextField(blank=True)
+    emailSent = models.BooleanField(default=False)
+    createdUserId = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        ordering = ["rowNumber"]

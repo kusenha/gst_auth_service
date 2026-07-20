@@ -199,3 +199,12 @@ NOTIFICATION_INTERNAL_TOKEN = os.getenv("NOTIFICATION_INTERNAL_TOKEN", AUTH_INTE
 # healthy again.
 DISCOVERY_SERVICE_URL = os.getenv("DISCOVERY_SERVICE_URL", "http://core-engine:8010/api/core")
 DISCOVERY_SHARED_TOKEN = os.getenv("DISCOVERY_SHARED_TOKEN", "")
+
+# Background processing for bulk employee imports (see apps.identity.tasks) —
+# separate Redis logical DBs and queue name from notification_service's own
+# Celery setup, even though both share the same Redis container.
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/2")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/3")
+CELERY_TASK_DEFAULT_QUEUE = os.getenv("CELERY_TASK_DEFAULT_QUEUE", "auth.imports")
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "30"))

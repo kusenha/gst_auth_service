@@ -7,7 +7,7 @@ from django.contrib.auth.models import Group
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from apps.identity.models import UserProfile
+from apps.identity.models import EmployeeImportBatch, EmployeeImportRow, UserProfile
 from apps.identity.services.designations import resolve_designation_name
 from apps.identity.services.profiles import ProfileConflictError, ensure_user_profile
 
@@ -729,3 +729,61 @@ class AssignPermissionsSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Unknown permissions: {', '.join(invalid)}")
 
         return sorted({pid for pid, _ in matched})
+
+
+class EmployeeImportRowInputSerializer(serializers.Serializer):
+    """One row from the uploaded sheet. Department/designation name resolution
+    already happened client-side (the frontend has the org catalog loaded);
+    this only needs enough to create the account and mail it out."""
+
+    checkNumber = serializers.CharField(required=True, allow_blank=False)
+    personnelNumber = serializers.CharField(required=False, allow_blank=True)
+    firstName = serializers.CharField(required=False, allow_blank=True)
+    lastName = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    departmentId = serializers.CharField(required=False, allow_blank=True)
+    designationId = serializers.IntegerField(required=False, allow_null=True)
+    designation = serializers.CharField(required=False, allow_blank=True)
+
+
+class EmployeeImportRowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmployeeImportRow
+        fields = [
+            "id",
+            "rowNumber",
+            "checkNumber",
+            "firstName",
+            "lastName",
+            "email",
+            "status",
+            "errorMessage",
+            "emailSent",
+        ]
+
+
+class EmployeeImportBatchSerializer(serializers.ModelSerializer):
+    rows = EmployeeImportRowSerializer(many=True, read_only=True)
+    createdRows = serializers.SerializerMethodField()
+    failedRows = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EmployeeImportBatch
+        fields = [
+            "id",
+            "fileName",
+            "createdBy",
+            "totalRows",
+            "createdRows",
+            "failedRows",
+            "status",
+            "createdAt",
+            "completedAt",
+            "rows",
+        ]
+
+    def get_createdRows(self, obj):
+        return sum(1 for row in obj.rows.all() if row.status == "created")
+
+    def get_failedRows(self, obj):
+        return sum(1 for row in obj.rows.all() if row.status == "failed")
