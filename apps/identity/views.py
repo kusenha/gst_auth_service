@@ -1,8 +1,10 @@
+import logging
 import secrets
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -34,6 +36,8 @@ from apps.identity.services.access_delivery import (
 )
 from apps.identity.services.profiles import ensure_user_profile
 from apps.identity.tasks import process_employee_import_row_task
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -365,9 +369,17 @@ class EmployeeImportDetailView(APIView):
     def get(self, request, batch_id: str):
         if not _can_manage_users(request):
             return Response({"detail": "You do not have permission to manage users."}, status=status.HTTP_403_FORBIDDEN)
-        batch = EmployeeImportBatch.objects.prefetch_related("rows").filter(id=batch_id).first()
-        if not batch:
+
+        try:
+            batch = EmployeeImportBatch.objects.prefetch_related("rows").filter(id=batch_id).first()
+        except (DjangoValidationError, ValueError):
+            logger.warning("Employee import batch lookup failed: %r is not a valid UUID.", batch_id)
             return Response({"detail": "Import batch not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not batch:
+            logger.warning("Employee import batch lookup failed: no batch with id %s.", batch_id)
+            return Response({"detail": "Import batch not found."}, status=status.HTTP_404_NOT_FOUND)
+
         return Response(EmployeeImportBatchSerializer(batch).data)
 
 
