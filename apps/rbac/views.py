@@ -216,7 +216,7 @@ class InternalRbacRegisterView(APIView):
         if not service_name:
             return Response({"detail": "service is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        service = Service.touch(service_name)
+        service = Service.touch(service_name, display_name=str(request.data.get("displayName", "")))
 
         permissions_created = 0
         permissions_updated = 0
@@ -234,6 +234,7 @@ class InternalRbacRegisterView(APIView):
                 permissions_updated += 1
 
         roles_created = 0
+        roles_updated = 0
         for item in request.data.get("roles") or []:
             key = str(item.get("key", "")).strip()
             if not key:
@@ -243,16 +244,24 @@ class InternalRbacRegisterView(APIView):
             role_service = (
                 _resolve_service(item["service"]) if "service" in item else service
             )
-            if Role.objects.filter(service=role_service, key=key).exists():
-                continue
-            role = Role.objects.create(
+            name = item.get("name") or key
+            role, created = Role.objects.get_or_create(
                 service=role_service,
                 key=key,
-                name=item.get("name") or key,
-                isSystem=bool(item.get("isSystem", False)),
+                defaults={"name": name, "isSystem": bool(item.get("isSystem", False))},
             )
+            if not created and role.name != name:
+                role.name = name
+                role.save(update_fields=["name"])
+            # Registration re-runs on every deploy, so permissions must be
+            # re-synced even for a role that already existed — otherwise a
+            # permission added to the catalog after the role's first
+            # registration would never reach the database.
             _sync_role_permissions(role, item.get("permissionKeys") or [])
-            roles_created += 1
+            if created:
+                roles_created += 1
+            else:
+                roles_updated += 1
 
         return Response(
             {
@@ -260,6 +269,7 @@ class InternalRbacRegisterView(APIView):
                 "permissionsCreated": permissions_created,
                 "permissionsUpdated": permissions_updated,
                 "rolesCreated": roles_created,
+                "rolesUpdated": roles_updated,
             }
         )
 
