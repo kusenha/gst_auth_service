@@ -14,6 +14,7 @@ from apps.rbac.serializers import (
     RoleWriteSerializer,
     ServiceSerializer,
 )
+from apps.rbac.services import grant_service_access_to_admins
 
 MANAGE_ROLES = {"hr_officer", "administrator", "super_admin"}
 
@@ -217,6 +218,7 @@ class InternalRbacRegisterView(APIView):
             return Response({"detail": "service is required."}, status=status.HTTP_400_BAD_REQUEST)
 
         service = Service.touch(service_name, display_name=str(request.data.get("displayName", "")))
+        admin_grants_created = grant_service_access_to_admins(service, granted_by="system:rbac-register")
 
         permissions_created = 0
         permissions_updated = 0
@@ -270,6 +272,7 @@ class InternalRbacRegisterView(APIView):
                 "permissionsUpdated": permissions_updated,
                 "rolesCreated": roles_created,
                 "rolesUpdated": roles_updated,
+                "adminGrantsCreated": admin_grants_created,
             }
         )
 
