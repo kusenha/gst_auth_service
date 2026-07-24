@@ -35,19 +35,20 @@ def resolve_service_keys(user) -> list[str]:
 
 def resolve_permission_keys(user) -> list[str]:
     """Union of the user's role-derived permissions (via profile.role) and any direct
-    per-user grants. Prefers a global role (service is null) over a same-keyed
-    service-scoped role, since profile.role carries no service context of its own."""
+    per-user grants. profile.role is a single account-wide name (e.g.
+    "administrator"), but each service registers its own Role row scoped to
+    itself under that same key (see InternalRbacRegisterView) — a user gets
+    the union of whatever every service has granted that role name, not just
+    one service's definition of it."""
     profile = getattr(user, "profile", None)
     role_key = profile.role if profile and profile.role else ""
 
     keys: set[str] = set()
     if role_key:
-        role = (
-            Role.objects.filter(key=role_key, service__isnull=True).first()
-            or Role.objects.filter(key=role_key).first()
+        role_ids = Role.objects.filter(key=role_key).values_list("id", flat=True)
+        keys.update(
+            RolePermission.objects.filter(role_id__in=role_ids).values_list("permission__key", flat=True)
         )
-        if role:
-            keys.update(RolePermission.objects.filter(role=role).values_list("permission__key", flat=True))
 
     keys.update(UserPermission.objects.filter(user=user).values_list("permission__key", flat=True))
     return sorted(keys)
