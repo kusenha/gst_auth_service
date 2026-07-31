@@ -24,6 +24,7 @@ class UserSerializer(serializers.ModelSerializer):
     gender = serializers.SerializerMethodField()
     phone = serializers.SerializerMethodField()
     departmentId = serializers.SerializerMethodField()
+    organisationalUnitId = serializers.SerializerMethodField()
     designation = serializers.SerializerMethodField()
     designationId = serializers.SerializerMethodField()
     education = serializers.SerializerMethodField()
@@ -60,6 +61,7 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "email",
             "departmentId",
+            "organisationalUnitId",
             "designation",
             "designationId",
             "education",
@@ -123,6 +125,10 @@ class UserSerializer(serializers.ModelSerializer):
     def get_departmentId(self, obj):
         profile = self._profile(obj)
         return profile.departmentId if profile else ""
+
+    def get_organisationalUnitId(self, obj):
+        profile = self._profile(obj)
+        return profile.organisationalUnitId if profile else None
 
     def get_designation(self, obj):
         profile = self._profile(obj)
@@ -428,6 +434,7 @@ class AdminUserWriteSerializer(serializers.Serializer):
     phone = serializers.CharField(required=False, allow_blank=True)
     email = serializers.EmailField(required=False, allow_blank=True)
     departmentId = serializers.CharField(required=False, allow_blank=True)
+    organisationalUnitId = serializers.IntegerField(required=False, allow_null=True)
     designationId = serializers.IntegerField(required=False, allow_null=True)
     designation = serializers.CharField(required=False, allow_blank=True)
     education = serializers.CharField(required=False, allow_blank=True)
@@ -455,6 +462,7 @@ class AdminUserWriteSerializer(serializers.Serializer):
             "gender": "Male",
             "phone": "",
             "departmentId": "",
+            "organisationalUnitId": None,
             "designationId": None,
             "designationName": "",
             "education": "",
@@ -570,6 +578,7 @@ class AdminUserWriteSerializer(serializers.Serializer):
         profile.gender = validated_data.get("gender", "Male")
         profile.phone = validated_data.get("phone", "")
         profile.departmentId = validated_data.get("departmentId", "")
+        profile.organisationalUnitId = validated_data.get("organisationalUnitId")
         designation_id = validated_data.get("designationId")
         profile.designationId = designation_id
         profile.designationName = resolve_designation_name(
@@ -659,6 +668,8 @@ class AdminUserWriteSerializer(serializers.Serializer):
             profile.phone = validated_data.get("phone", "")
         if "departmentId" in validated_data:
             profile.departmentId = validated_data.get("departmentId", "")
+        if "organisationalUnitId" in validated_data:
+            profile.organisationalUnitId = validated_data.get("organisationalUnitId")
         if "designationId" in validated_data:
             profile.designationId = validated_data.get("designationId")
         if "designation" in validated_data:

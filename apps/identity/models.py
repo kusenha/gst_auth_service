@@ -31,6 +31,12 @@ class UserProfile(models.Model):
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, default="Male")
     phone = models.CharField(max_length=30, blank=True)
     departmentId = models.CharField(max_length=50, blank=True)
+    # Loose reference to apps.organization.OrganisationalUnit.id — not a real
+    # FK, matching that model's own documented stance that it deliberately
+    # doesn't share an identifier space with this app. This is what lets a
+    # claim form auto-fill "the requester's own directorate/unit" instead of
+    # asking them to pick one and risk choosing the wrong one.
+    organisationalUnitId = models.IntegerField(null=True, blank=True)
     designationId = models.IntegerField(null=True, blank=True)
     designationName = models.CharField(max_length=120, blank=True)
     education = models.CharField(max_length=60, blank=True)
