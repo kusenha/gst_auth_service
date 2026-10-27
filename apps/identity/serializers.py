@@ -10,6 +10,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.identity.models import EmployeeImportBatch, EmployeeImportRow, UserProfile
 from apps.identity.services.designations import resolve_designation_name
 from apps.identity.services.profiles import ProfileConflictError, ensure_user_profile
+from apps.identity.validators import validate_check_number
 
 User = get_user_model()
 
@@ -347,6 +348,11 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = User
         fields = ["username", "email", "first_name", "last_name", "password", "roles"]
 
+    def validate_username(self, value):
+        # The username is the employee's check number.
+        validate_check_number(value)
+        return value
+
     def create(self, validated_data):
         roles = validated_data.pop("roles", [])
         user = User(**validated_data)
@@ -425,7 +431,7 @@ class AuthTokenSerializer(TokenObtainPairSerializer):
 
 class AdminUserWriteSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, allow_blank=False)
-    checkNumber = serializers.CharField(required=True)
+    checkNumber = serializers.CharField(required=True, validators=[validate_check_number])
     personnelNumber = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     firstName = serializers.CharField(required=False, allow_blank=True)
     middleName = serializers.CharField(required=False, allow_blank=True)
@@ -747,7 +753,7 @@ class EmployeeImportRowInputSerializer(serializers.Serializer):
     already happened client-side (the frontend has the org catalog loaded);
     this only needs enough to create the account and mail it out."""
 
-    checkNumber = serializers.CharField(required=True, allow_blank=False)
+    checkNumber = serializers.CharField(required=True, allow_blank=False, validators=[validate_check_number])
     personnelNumber = serializers.CharField(required=False, allow_blank=True)
     firstName = serializers.CharField(required=False, allow_blank=True)
     lastName = serializers.CharField(required=False, allow_blank=True)

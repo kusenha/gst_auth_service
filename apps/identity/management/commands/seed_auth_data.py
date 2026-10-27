@@ -28,7 +28,7 @@ class Command(BaseCommand):
         users = [
             {
                 "source_id": "e0",
-                "check_number": "GST-10000",
+                "check_number": "100000000",
                 "first_name": "System",
                 "last_name": "Administrator",
                 "email": "system.administrator@gst.go.tz",
@@ -40,7 +40,7 @@ class Command(BaseCommand):
             },
             {
                 "source_id": "e1",
-                "check_number": "GST-10001",
+                "check_number": "100000001",
                 "first_name": "Amani",
                 "last_name": "Mwakalinga",
                 "email": "amani.mwakalinga@gst.go.tz",
@@ -52,7 +52,7 @@ class Command(BaseCommand):
             },
             {
                 "source_id": "e2",
-                "check_number": "GST-10002",
+                "check_number": "100000002",
                 "first_name": "Baraka",
                 "last_name": "Kimaro",
                 "email": "baraka.kimaro@gst.go.tz",
@@ -64,7 +64,7 @@ class Command(BaseCommand):
             },
             {
                 "source_id": "e3",
-                "check_number": "GST-10003",
+                "check_number": "100000003",
                 "first_name": "Neema",
                 "last_name": "Mushi",
                 "email": "neema.mushi@gst.go.tz",
@@ -76,7 +76,7 @@ class Command(BaseCommand):
             },
             {
                 "source_id": "e4",
-                "check_number": "GST-10004",
+                "check_number": "100000004",
                 "first_name": "Salma",
                 "last_name": "Kessy",
                 "email": "salma.kessy@gst.go.tz",

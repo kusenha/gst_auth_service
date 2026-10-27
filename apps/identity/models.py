@@ -3,6 +3,8 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+from apps.identity.validators import validate_check_number
+
 
 class ServiceClient(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -25,7 +27,7 @@ class UserProfile(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     sourceUserId = models.CharField(max_length=50, unique=True, db_index=True)
-    checkNumber = models.CharField(max_length=50, unique=True)
+    checkNumber = models.CharField(max_length=50, unique=True, validators=[validate_check_number])
     personnelNumber = models.CharField(max_length=50, unique=True, null=True, blank=True, db_index=True)
     middleName = models.CharField(max_length=120, blank=True)
     gender = models.CharField(max_length=10, choices=GENDER_CHOICES, default="Male")
