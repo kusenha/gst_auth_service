@@ -1,17 +1,58 @@
 from django.db import models
 
 
+class Department(models.Model):
+    """Platform-wide department master. Every service reads departments from
+    here — eda-service keeps a read-only replica only for its own foreign
+    keys (task catalog, designation rates). IDs are the same strings the
+    rest of the platform already stores as departmentId (e.g. "d1")."""
+
+    id = models.CharField(max_length=50, primary_key=True)
+    name = models.CharField(max_length=120, unique=True)
+    # Employee sourceUserId of the department head, same convention as
+    # OrganisationalUnitHead.employeeId.
+    headId = models.CharField(max_length=50, blank=True)
+    description = models.TextField(blank=True)
+    createdAt = models.DateTimeField(auto_now_add=True)
+    updatedAt = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Designation(models.Model):
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.PROTECT,
+        related_name="designations",
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(max_length=120)
+    createdAt = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["name"]
+        unique_together = ("department", "name")
+
+    def __str__(self) -> str:
+        if self.department_id:
+            return f"{self.department.name} - {self.name}"
+        return self.name
+
+
 class OrganisationalUnit(models.Model):
     """Directorate/Department/Unit/Section hierarchy, shared across every GST
     service that needs to resolve "who approves for this part of the
     org chart" — owned here so no downstream service maintains its own copy
     of heads of directorate/department/unit/section.
 
-    Deliberately separate from eda_backend's own (flat, single-level)
-    Department model — that one is EDA's org-chart-for-its-own-purposes,
-    this one is the platform-wide leadership/approval hierarchy. The two
-    are not guaranteed to share an identifier space; reconciling them is
-    out of scope here.
+    Separate from Department above: Department is the flat HR structure
+    employees belong to, this is the leadership/approval hierarchy used by
+    claim-request-service. The two don't share an identifier space yet.
     """
 
     UNIT_TYPE_CHOICES = [

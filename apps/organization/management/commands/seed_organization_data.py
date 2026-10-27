@@ -1,9 +1,33 @@
 from datetime import date
 
+from django.core.management import call_command
+from django.core.management.color import no_style
 from django.core.management.base import BaseCommand
+from django.db import connection
 
 from apps.identity.models import UserProfile
-from apps.organization.models import OrganisationalUnit, OrganisationalUnitHead
+from apps.organization.models import Department, Designation, OrganisationalUnit, OrganisationalUnitHead
+
+# (id, name, headId) — the same ids eda-service and every UserProfile
+# already store as departmentId.
+DEPARTMENTS = [
+    ("d1", "Administration", "e1"),
+    ("d2", "Finance", "e2"),
+    ("d3", "ICT", ""),
+    ("d4", "Human Resource", "e4"),
+    ("d5", "Geological Mapping", ""),
+]
+
+# (id, departmentId, name) — explicit ids so UserProfile.designationId and
+# eda-service's task catalog / designation rates line up on a fresh install.
+DESIGNATIONS = [
+    (1, "d1", "Director"),
+    (2, "d1", "Manager"),
+    (3, "d5", "Senior Geologist"),
+    (4, "d3", "ICT Officer"),
+    (5, "d2", "Accountant"),
+    (6, "d4", "Human Resource Officer"),
+]
 
 # Employee source IDs match the demo users seeded by
 # apps.identity.management.commands.seed_auth_data — e0 is the
@@ -40,9 +64,11 @@ DEPARTMENT_ID_TO_UNIT_NAME = {
 
 
 class Command(BaseCommand):
-    help = "Seed demo organisational units and their current heads."
+    help = "Seed demo departments, designations, organisational units and their current heads."
 
     def handle(self, *args, **options):
+        self._seed_departments()
+
         units_by_name = {}
         for name, unit_type in UNITS:
             unit, _ = OrganisationalUnit.objects.update_or_create(
@@ -71,3 +97,23 @@ class Command(BaseCommand):
                 profile.save(update_fields=["organisationalUnitId"])
 
         self.stdout.write(self.style.SUCCESS("Organisation seed complete."))
+
+    def _seed_departments(self):
+        # Only ever fills an empty table, so a department deleted from the
+        # Identity & Access portal doesn't come back on the next restart.
+        if Department.objects.exists():
+            return
+        call_command("import_org_from_eda")
+        if Department.objects.exists():
+            return
+        for dep_id, name, head_id in DEPARTMENTS:
+            Department.objects.create(id=dep_id, name=name, headId=head_id, description=f"{name} department")
+        for designation_id, dep_id, name in DESIGNATIONS:
+            Designation.objects.create(id=designation_id, department_id=dep_id, name=name)
+        _reset_designation_sequence()
+
+
+def _reset_designation_sequence():
+    for sql in connection.ops.sequence_reset_sql(no_style(), [Designation]):
+        with connection.cursor() as cursor:
+            cursor.execute(sql)

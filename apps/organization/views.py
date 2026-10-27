@@ -1,13 +1,15 @@
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.identity.models import UserProfile
-from apps.organization.models import OrganisationalUnit, OrganisationalUnitHead
+from apps.organization.models import Department, Designation, OrganisationalUnit, OrganisationalUnitHead
 from apps.organization.serializers import (
+    DepartmentSerializer,
+    DesignationSerializer,
     OrganisationalUnitHeadSerializer,
     OrganisationalUnitSerializer,
 )
@@ -214,3 +216,145 @@ class CurrentUnitHeadView(APIView):
             **_employee_summary(head.employeeId),
         }
         return Response(payload)
+
+
+def _employee_counts() -> dict:
+    rows = (
+        UserProfile.objects.exclude(departmentId="")
+        .exclude(status="Archived")
+        .values("departmentId")
+        .annotate(total=Count("id"))
+    )
+    return {row["departmentId"]: row["total"] for row in rows}
+
+
+class DepartmentListCreateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        if not _can_read(request):
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+        context = {"employee_counts": _employee_counts()}
+        return Response(DepartmentSerializer(Department.objects.all(), many=True, context=context).data)
+
+    def post(self, request):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to create departments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = DepartmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DepartmentDetailView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, pk: str):
+        if not _can_read(request):
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+        department = Department.objects.filter(pk=pk).first()
+        if not department:
+            return Response({"detail": "Department not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(DepartmentSerializer(department, context={"employee_counts": _employee_counts()}).data)
+
+    def patch(self, request, pk: str):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to update departments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        department = Department.objects.filter(pk=pk).first()
+        if not department:
+            return Response({"detail": "Department not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DepartmentSerializer(
+            department, data=request.data, partial=True, context={"employee_counts": _employee_counts()}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, pk: str):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to delete departments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        department = Department.objects.filter(pk=pk).first()
+        if not department:
+            return Response({"detail": "Department not found."}, status=status.HTTP_404_NOT_FOUND)
+        if UserProfile.objects.filter(departmentId=pk).exclude(status="Archived").exists():
+            return Response(
+                {"detail": "Move this department's employees to another department before deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if department.designations.exists():
+            return Response(
+                {"detail": "Delete or move this department's designations before deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        department.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DesignationListCreateView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        if not _can_read(request):
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+        queryset = Designation.objects.all()
+        department_id = request.query_params.get("departmentId")
+        if department_id:
+            queryset = queryset.filter(department_id=department_id)
+        return Response(DesignationSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to create designations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = DesignationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DesignationDetailView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def patch(self, request, pk: int):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to update designations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        designation = Designation.objects.filter(pk=pk).first()
+        if not designation:
+            return Response({"detail": "Designation not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DesignationSerializer(designation, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # Profiles cache the designation name; keep them in step with a rename.
+        UserProfile.objects.filter(designationId=designation.pk).update(designationName=designation.name)
+        return Response(serializer.data)
+
+    def delete(self, request, pk: int):
+        if not _can_manage(request):
+            return Response(
+                {"detail": "You do not have permission to delete designations."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        designation = Designation.objects.filter(pk=pk).first()
+        if not designation:
+            return Response({"detail": "Designation not found."}, status=status.HTTP_404_NOT_FOUND)
+        if UserProfile.objects.filter(designationId=pk).exclude(status="Archived").exists():
+            return Response(
+                {"detail": "Employees still hold this designation. Reassign them before deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        designation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
